@@ -1,0 +1,55 @@
+🎯 How to Use These with Claude Code:
+
+Download both documents
+Place them in your project's Documents/ folder
+Open Claude Code in your project directory
+Tell Claude Code:
+
+"Read SIMPLIFIED-ARCHITECTURE.md and DIRECTIVE-FOR-CLAUDE-CODE.md. We're simplifying the original plan significantly. Remove the database layer and base classes. Implement Phase 1 as specified: storage.py first, then scrapers/mccormick.py, then email_notifier.py, then main.py. Follow the specifications exactly."
+
+
+
+
+🔑 Key Simplifications I Made:
+From the original plan:
+
+❌ SQLite database → ✅ Simple JSON file
+❌ Abstract base classes → ✅ Plain functions (abstract later if needed)
+❌ Complex Event objects → ✅ Python dictionaries
+❌ 7+ data fields → ✅ 5 essential fields
+❌ Heavy testing framework → ✅ Manual testing for now
+
+Result:
+
+Original: ~500+ lines with infrastructure overhead
+Simplified: ~140 lines of straightforward code
+Same functionality, 1/4 the complexity
+
+
+💡 Why This Approach is Better:
+
+Faster to build - You'll have it working today, not next week
+Easier to learn - Clear, simple code to study
+Easier to debug - No abstraction layers hiding issues
+Easier to extend - Add complexity only when needed
+Actually works for your use case - 65 events doesn't need a database!
+
+
+🤔 Your Role as "Guy in the Middle":
+You're the Product Owner who:
+
+✅ Approved the simplified architecture
+✅ Understands the trade-offs
+✅ Can redirect Claude Code if it tries to over-engineer
+✅ Knows what "done" looks like (daily email with new events)
+
+
+What to Watch For:
+If Claude Code tries to:
+
+Add database back in → Redirect: "No, use JSON storage as specified"
+Create abstract classes → Redirect: "No, simple functions first"
+Add complex error handling → Redirect: "Keep it simple, log errors and continue"
+Add testing frameworks → Redirect: "Manual testing for Phase 1"
+
+You're the gatekeeper against over-engineering!
