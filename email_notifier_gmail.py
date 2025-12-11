@@ -39,7 +39,7 @@ GMAIL_APP_PASSWORD = os.getenv('GMAIL_APP_PASSWORD')  # App password (not regula
 RECIPIENT_EMAIL = os.getenv('RECIPIENT_EMAIL')  # Where to send notifications
 
 
-def send_combined_email(new_events: list = None, ohare_data: dict = None, venue_name: str = "McCormick Place") -> bool:
+def send_combined_email(new_events: list = None, ohare_data: dict = None, venue_name: str = "McCormick Place", upcoming_events: list = None) -> bool:
     """
     Send combined email with events AND O'Hare flight information.
 
@@ -47,6 +47,7 @@ def send_combined_email(new_events: list = None, ohare_data: dict = None, venue_
         new_events (list): List of new events (can be empty)
         ohare_data (dict): O'Hare flight data from scraper
         venue_name (str): Venue name
+        upcoming_events (list): List of events starting in next 0-2 days (can be empty)
 
     Returns:
         bool: True if sent successfully
@@ -57,9 +58,8 @@ def send_combined_email(new_events: list = None, ohare_data: dict = None, venue_
     has_events = len(new_events) > 0
     has_ohare = ohare_data and len(ohare_data) > 0
 
-    if not has_events and not has_ohare:
-        logger.info("No new events or O'Hare alerts to email")
-        return False
+    # ALWAYS send daily summary (removed the check that prevented sending)
+    # Even if no new events, we send O'Hare status to confirm system is working
 
     # Check credentials
     if not GMAIL_ADDRESS or not GMAIL_APP_PASSWORD or not RECIPIENT_EMAIL:
@@ -75,11 +75,15 @@ def send_combined_email(new_events: list = None, ohare_data: dict = None, venue_
             demand = ohare_data.get('taxi_demand', 'MEDIUM')
             subject_parts.append(f"O'Hare: {demand} Demand")
 
-        subject = f"🚕 {' + '.join(subject_parts)}"
+        # If nothing specific to report, use generic daily summary subject
+        if not subject_parts:
+            subject = "🚕 Daily Chicago Taxi Monitor Summary"
+        else:
+            subject = f"🚕 {' + '.join(subject_parts)}"
 
         # Build email content
-        html_content = _build_combined_html(new_events, ohare_data, venue_name)
-        text_content = _build_combined_text(new_events, ohare_data, venue_name)
+        html_content = _build_combined_html(new_events, ohare_data, venue_name, upcoming_events or [])
+        text_content = _build_combined_text(new_events, ohare_data, venue_name, upcoming_events or [])
 
         # Create message
         message = MIMEMultipart('alternative')
@@ -483,9 +487,12 @@ def main():
     print(f"\n{'='*60}\n")
 
 
-def _build_combined_html(events: list, ohare_data: dict, venue_name: str) -> str:
+def _build_combined_html(events: list, ohare_data: dict, venue_name: str, upcoming_events: list = None) -> str:
     """Build HTML email with both events and O'Hare data."""
+    from upcoming_events import format_event_timing, estimate_peak_pickup_time
+
     timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    upcoming_events = upcoming_events or []
 
     html = f"""
     <html>
@@ -493,6 +500,56 @@ def _build_combined_html(events: list, ohare_data: dict, venue_name: str) -> str
         <h2 style="color: #2c3e50;">Hi Ryad,</h2>
         <p>Your daily Chicago taxi demand update:</p>
         <hr style="border: 1px solid #eee;">
+    """
+
+    # ============================================================
+    # UPCOMING EVENTS SECTION (Events starting in next 2 days)
+    # ============================================================
+    if upcoming_events:
+        html += f"""
+        <div style="margin-bottom: 30px; padding: 20px; background-color: #fff3cd; border-left: 5px solid #ffc107;">
+            <h3 style="margin-top: 0; color: #2c3e50;">🚕 EVENTS STARTING SOON (Next 2 Days)</h3>
+            <p style="margin: 5px 0; font-size: 14px; color: #856404;">
+                <strong>{len(upcoming_events)} event{'s' if len(upcoming_events) != 1 else ''} starting soon - plan your schedule!</strong>
+            </p>
+        """
+
+        for event in upcoming_events:
+            event_name = event.get('event_name', 'Unknown Event')
+            venue = event.get('venue', 'Unknown Venue')
+            location = event.get('location', venue)
+            timing = format_event_timing(event)
+            pickup_time = estimate_peak_pickup_time(event)
+
+            # Get crowd estimate
+            crowd_level, crowd_emoji, crowd_description = _estimate_crowd_size(location)
+
+            # Color based on crowd size
+            if crowd_level == "MASSIVE":
+                border_color = "#e74c3c"
+            elif crowd_level == "LARGE":
+                border_color = "#f39c12"
+            else:
+                border_color = "#3498db"
+
+            html += f"""
+            <div style="margin: 15px 0; padding: 12px; background-color: #fff; border-left: 3px solid {border_color};">
+                <h4 style="margin: 0 0 8px 0; color: #2c3e50;">{event_name}</h4>
+                <p style="margin: 3px 0; font-size: 14px;">
+                    <strong>📅 When:</strong> {timing}<br>
+                    <strong>📍 Where:</strong> {venue} - {location}<br>
+                    <strong>{crowd_emoji} Crowd:</strong> <span style="color: {border_color}; font-weight: bold;">{crowd_level}</span> - {crowd_description}<br>
+                    <strong>🚕 Peak Pickup:</strong> {pickup_time}
+                </p>
+            </div>
+            """
+
+        html += """
+        </div>
+        """
+
+    # Continue with existing sections (O'Hare, new events...)
+    html += """
     """
 
     # Add O'Hare section if available
@@ -602,13 +659,38 @@ def _build_combined_html(events: list, ohare_data: dict, venue_name: str) -> str
     return html
 
 
-def _build_combined_text(events: list, ohare_data: dict, venue_name: str) -> str:
+def _build_combined_text(events: list, ohare_data: dict, venue_name: str, upcoming_events: list = None) -> str:
     """Build plain text email with both events and O'Hare data."""
+    from upcoming_events import format_event_timing, estimate_peak_pickup_time
+
     timestamp = datetime.now().strftime("%B %d, %Y at %I:%M %p")
+    upcoming_events = upcoming_events or []
 
     text = "Hi Ryad,\n\n"
     text += "Your daily Chicago taxi demand update:\n\n"
     text += "=" * 60 + "\n\n"
+
+    # Add upcoming events section
+    if upcoming_events:
+        text += "🚕 EVENTS STARTING SOON (Next 2 Days)\n"
+        text += f"{len(upcoming_events)} event{'s' if len(upcoming_events) != 1 else ''} starting soon - plan your schedule!\n\n"
+
+        for event in upcoming_events:
+            event_name = event.get('event_name', 'Unknown Event')
+            venue = event.get('venue', 'Unknown Venue')
+            location = event.get('location', venue)
+            timing = format_event_timing(event)
+            pickup_time = estimate_peak_pickup_time(event)
+
+            crowd_level, crowd_emoji, crowd_description = _estimate_crowd_size(location)
+
+            text += f"• {event_name}\n"
+            text += f"  When: {timing}\n"
+            text += f"  Where: {venue} - {location}\n"
+            text += f"  {crowd_emoji} Crowd: {crowd_level} - {crowd_description}\n"
+            text += f"  🚕 Peak Pickup: {pickup_time}\n\n"
+
+        text += "=" * 60 + "\n\n"
 
     # Add O'Hare section
     if ohare_data:
